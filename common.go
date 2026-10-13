@@ -17,11 +17,9 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha512"
-	"crypto/tls/internal/fips140tls"
 	"crypto/x509"
 	"errors"
 	"fmt"
-	"internal/godebug"
 	"io"
 	"net"
 	"runtime"
@@ -30,6 +28,8 @@ import (
 	"sync"
 	"time"
 	_ "unsafe" // for linkname
+
+	"github.com/saucesteals/tlsx/internal/fips140tls"
 )
 
 const (
@@ -576,6 +576,10 @@ const (
 // modified. A Config may be reused; the tls package will also not
 // modify it.
 type Config struct {
+	// Compatibility selects optional client wire adaptations. Nil preserves native TLS behavior.
+	// The factory returns fresh state for each client handshake.
+	Compatibility func() (*ClientCompatibility, error)
+
 	// Rand provides the source of entropy for the connection.
 	// If Rand is nil, TLS uses the cryptographic random reader in package
 	// crypto/rand. The Reader must be safe for use by multiple goroutines.
@@ -1039,6 +1043,7 @@ func (c *Config) Clone() *Config {
 		MinVersion:                          c.MinVersion,
 		MaxVersion:                          c.MaxVersion,
 		CurvePreferences:                    c.CurvePreferences,
+		Compatibility:                       c.Compatibility,
 		DynamicRecordSizingDisabled:         c.DynamicRecordSizingDisabled,
 		Renegotiation:                       c.Renegotiation,
 		KeyLogWriter:                        c.KeyLogWriter,
@@ -1789,7 +1794,7 @@ func supportedSignatureAlgorithms(minVers, maxVers uint16) []SignatureScheme {
 	})
 }
 
-var tlssha1 = godebug.New("tlssha1")
+var tlssha1 = godebugSetting("tlssha1")
 
 func isDisabledSignatureAlgorithm(version uint16, s SignatureScheme, isCert bool) bool {
 	if fips140tls.Required() && !slices.Contains(allowedSignatureAlgorithmsFIPS, s) {

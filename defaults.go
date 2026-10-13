@@ -5,7 +5,6 @@
 package tls
 
 import (
-	"internal/godebug"
 	"slices"
 	_ "unsafe" // for linkname
 )
@@ -14,10 +13,10 @@ import (
 // them to apply local policies.
 
 // tlsmlkem=0 restores the pre-Go 1.24 default key exchanges.
-var tlsmlkem = godebug.New("tlsmlkem")
+var tlsmlkem = godebugSetting("tlsmlkem")
 
 // tlssecpmlkem=0 restores the pre-Go 1.26 default key exchanges.
-var tlssecpmlkem = godebug.New("tlssecpmlkem")
+var tlssecpmlkem = godebugSetting("tlssecpmlkem")
 
 // defaultCurveEnabled returns whether the key exchange c is enabled by default.
 func defaultCurveEnabled(c CurveID) bool {

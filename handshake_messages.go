@@ -70,6 +70,7 @@ func readUint24LengthPrefixed(s *cryptobyte.String, out *[]byte) bool {
 }
 
 type clientHelloMsg struct {
+	compatibility                    *ClientCompatibility
 	original                         []byte
 	vers                             uint16
 	random                           []byte
@@ -103,6 +104,9 @@ type clientHelloMsg struct {
 }
 
 func (m *clientHelloMsg) marshalMsg(echInner bool) ([]byte, error) {
+	if m.compatibility != nil {
+		return m.marshalCompatibility(echInner)
+	}
 	var exts cryptobyte.Builder
 	if len(m.serverName) > 0 {
 		// RFC 6066, Section 3
@@ -688,6 +692,7 @@ func (m *clientHelloMsg) originalBytes() []byte {
 func (m *clientHelloMsg) clone() *clientHelloMsg {
 	return &clientHelloMsg{
 		original:                         slices.Clone(m.original),
+		compatibility:                    m.compatibility,
 		vers:                             m.vers,
 		random:                           slices.Clone(m.random),
 		sessionId:                        slices.Clone(m.sessionId),

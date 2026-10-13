@@ -10,13 +10,14 @@ import (
 	"crypto"
 	"crypto/hkdf"
 	"crypto/hmac"
-	"crypto/internal/fips140/tls13"
 	"crypto/rsa"
 	"crypto/subtle"
 	"errors"
 	"hash"
 	"slices"
 	"time"
+
+	"github.com/saucesteals/tlsx/internal/tls13"
 )
 
 type clientHandshakeStateTLS13 struct {
@@ -138,6 +139,9 @@ func (hs *clientHandshakeStateTLS13) handshake() error {
 		return err
 	}
 	if err := hs.readServerFinished(); err != nil {
+		return err
+	}
+	if err := hs.sendCompatibilityFlight(); err != nil {
 		return err
 	}
 	if err := hs.sendClientCertificate(); err != nil {
@@ -476,7 +480,7 @@ func (hs *clientHandshakeStateTLS13) establishHandshakeKeys() error {
 		c.sendAlert(alertInternalError)
 		return err
 	}
-	sharedKey, err := ke.clientSharedSecret(hs.keyShareKeys, hs.serverHello.serverShare.data)
+	sharedKey, err := ke.clientSharedSecret(hs.compatibilityKeys(), hs.serverHello.serverShare.data)
 	if err != nil {
 		c.sendAlert(alertIllegalParameter)
 		return errors.New("tls: invalid server key share")
@@ -651,11 +655,16 @@ func (hs *clientHandshakeStateTLS13) readServerCertificate() error {
 		return unexpectedMessageError(certVerify, msg)
 	}
 
+	peerKey, err := c.compatibilityPeerKey(certVerify.signatureAlgorithm)
+	if err != nil {
+		return err
+	}
+
 	// See RFC 8446, Section 4.4.3.
-	// We don't use hs.hello.supportedSignatureAlgorithms because it might
+	// We don't rely solely on hs.hello.supportedSignatureAlgorithms because it might
 	// include PKCS#1 v1.5 and SHA-1 if the ClientHello also supported TLS 1.2.
 	if !isSupportedSignatureAlgorithm(certVerify.signatureAlgorithm, supportedSignatureAlgorithms(c.vers, c.vers)) ||
-		!isSupportedSignatureAlgorithm(certVerify.signatureAlgorithm, signatureSchemesForPublicKey(c.vers, c.peerCertificates[0].PublicKey)) {
+		!isSupportedSignatureAlgorithm(certVerify.signatureAlgorithm, signatureSchemesForPublicKey(c.vers, peerKey)) {
 		c.sendAlert(alertIllegalParameter)
 		return errors.New("tls: certificate used with invalid signature algorithm")
 	}
@@ -667,7 +676,7 @@ func (hs *clientHandshakeStateTLS13) readServerCertificate() error {
 		return c.sendAlert(alertInternalError)
 	}
 	signed := signedMessage(serverSignatureContext, hs.transcript)
-	if err := verifyHandshakeSignature(sigType, c.peerCertificates[0].PublicKey,
+	if err := verifyHandshakeSignature(sigType, peerKey,
 		sigHash, signed, certVerify.signature); err != nil {
 		c.sendAlert(alertDecryptError)
 		return errors.New("tls: invalid signature by the server certificate: " + err.Error())
@@ -873,7 +882,7 @@ func (c *Conn) handleNewSessionTicket(msg *newSessionTicketMsgTLS13) error {
 	psk := tls13.ExpandLabel(cipherSuite.hash.New, c.resumptionSecret, "resumption",
 		msg.nonce, cipherSuite.hash.Size())
 
-	session := c.sessionState()
+	session := c.storeCompatibilitySession(c.sessionState())
 	session.secret = psk
 	session.useBy = uint64(c.config.time().Add(lifetime).Unix())
 	session.ageAdd = msg.ageAdd

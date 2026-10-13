@@ -9,11 +9,12 @@ import (
 	"crypto/ecdh"
 	"crypto/fips140"
 	"crypto/hmac"
-	"crypto/internal/fips140/tls13"
 	"crypto/mlkem"
 	"errors"
 	"hash"
 	"io"
+
+	"github.com/saucesteals/tlsx/internal/tls13"
 )
 
 // This file contains the functions necessary to compute the TLS 1.3 key

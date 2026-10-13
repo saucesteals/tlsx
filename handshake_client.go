@@ -11,22 +11,22 @@ import (
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/hpke"
-	"crypto/internal/fips140/tls13"
 	"crypto/mldsa"
 	"crypto/rsa"
 	"crypto/subtle"
-	"crypto/tls/internal/fips140tls"
 	"crypto/x509"
 	"errors"
 	"fmt"
 	"hash"
-	"internal/godebug"
 	"io"
 	"net"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/saucesteals/tlsx/internal/fips140tls"
+	"github.com/saucesteals/tlsx/internal/tls13"
 )
 
 type clientHandshakeState struct {
@@ -43,6 +43,9 @@ type clientHandshakeState struct {
 
 func (c *Conn) makeClientHello() (*clientHelloMsg, *keySharePrivateKeys, *echClientContext, error) {
 	config := c.config
+	if err := c.initCompatibility(); err != nil {
+		return nil, nil, nil, err
+	}
 	if len(config.ServerName) == 0 && !config.InsecureSkipVerify {
 		return nil, nil, nil, errors.New("tls: either ServerName or InsecureSkipVerify must be specified in the tls.Config")
 	}
@@ -145,7 +148,7 @@ func (c *Conn) makeClientHello() (*clientHelloMsg, *keySharePrivateKeys, *echCli
 		// Since the order is fixed, the first one is always the one to send a
 		// key share for. All the PQ hybrids sort first, and produce a fallback
 		// ECDH share.
-		curveID := hello.supportedCurves[0]
+		curveID := c.compatibilityKeyShare(hello.supportedCurves[0])
 		ke, err := keyExchangeForCurveID(curveID)
 		if err != nil {
 			return nil, nil, nil, errors.New("tls: internal error: supportsCurve accepted unimplemented curve")
@@ -169,6 +172,10 @@ func (c *Conn) makeClientHello() (*clientHelloMsg, *keySharePrivateKeys, *echCli
 			p = []byte{}
 		}
 		hello.quicTransportParameters = p
+	}
+
+	if err := hello.configureCompatibility(config, c.compatibility, keyShareKeys); err != nil {
+		return nil, nil, nil, err
 	}
 
 	var ech *echClientContext
@@ -352,7 +359,7 @@ func (c *Conn) clientHandshake(ctx context.Context) (err error) {
 
 // fips140ems is a GODEBUG variable that can be set to 0 to disable the
 // enforcement of Extended Master Secret in FIPS 140-3 mode.
-var fips140ems = godebug.New("fips140ems")
+var fips140ems = godebugSetting("fips140ems")
 
 func (c *Conn) loadSession(hello *clientHelloMsg) (
 	session *SessionState, earlySecret *tls13.EarlySecret, binderKey []byte, err error) {
@@ -427,6 +434,10 @@ func (c *Conn) loadSession(hello *clientHelloMsg) (
 			c.config.ClientSessionCache.Put(cacheKey, nil)
 			return nil, nil, nil, nil
 		}
+	}
+
+	if !c.loadCompatibilitySession(session) {
+		return nil, nil, nil, nil
 	}
 
 	if session.version != VersionTLS13 {
@@ -1047,7 +1058,7 @@ func (hs *clientHandshakeState) readSessionTicket() error {
 }
 
 func (hs *clientHandshakeState) saveSessionTicket() error {
-	if hs.ticket == nil {
+	if hs.ticket == nil || hs.c.config.ClientSessionCache == nil {
 		return nil
 	}
 	c := hs.c
@@ -1057,7 +1068,7 @@ func (hs *clientHandshakeState) saveSessionTicket() error {
 		return nil
 	}
 
-	session := c.sessionState()
+	session := c.storeCompatibilitySession(c.sessionState())
 	session.secret = hs.masterSecret
 	session.ticket = hs.ticket
 
@@ -1086,7 +1097,7 @@ func (hs *clientHandshakeState) sendFinished(out []byte) error {
 // to verify the signatures of during a TLS handshake.
 const defaultMaxRSAKeySize = 8192
 
-var tlsmaxrsasize = godebug.New("tlsmaxrsasize")
+var tlsmaxrsasize = godebugSetting("tlsmaxrsasize")
 
 func checkKeySize(n int) (max int, ok bool) {
 	if v := tlsmaxrsasize.Value(); v != "" {
