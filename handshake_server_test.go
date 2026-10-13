@@ -10,15 +10,14 @@ import (
 	"crypto"
 	"crypto/ecdh"
 	"crypto/elliptic"
-	internalrand "crypto/internal/rand"
 	"crypto/rand"
-	"crypto/tls/internal/fips140tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"internal/testenv"
+	"github.com/saucesteals/tlsx/internal/fips140tls"
+	"github.com/saucesteals/tlsx/internal/testenv"
 	"io"
 	"net"
 	"os"
@@ -1417,8 +1416,8 @@ func benchmarkHandshakeServer(b *testing.B, version uint16, cipherSuite uint16, 
 	config := testConfigServer.Clone()
 
 	// cryptotest.SetGlobalRandom does not support *testing.B
-	internalrand.SetTestingReader(zeroSource{})
-	defer internalrand.SetTestingReader(nil)
+	b.Setenv("GODEBUG", os.Getenv("GODEBUG")+",cryptocustomrand=1")
+	config.Rand = zeroSource{}
 
 	config.CipherSuites = []uint16{cipherSuite}
 	config.CurvePreferences = []CurveID{curve}

@@ -12,13 +12,14 @@ import (
 	"crypto/mldsa"
 	"crypto/rsa"
 	"crypto/subtle"
-	"crypto/tls/internal/fips140tls"
 	"crypto/x509"
 	"errors"
 	"fmt"
 	"hash"
 	"io"
 	"time"
+
+	"github.com/saucesteals/tlsx/internal/fips140tls"
 )
 
 // serverHandshakeState contains details of a server handshake in progress.

@@ -8,12 +8,12 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"crypto/internal/boring"
 	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
-	"internal/testenv"
+	"github.com/saucesteals/tlsx/internal/boring"
+	"github.com/saucesteals/tlsx/internal/testenv"
 	"io"
 	"net"
 	"os"
@@ -406,8 +406,7 @@ func TestMain(m *testing.M) {
 	flag.Parse()
 
 	if *bogoMode {
-		bogoShim()
-		os.Exit(0)
+		panic("BoGo not included in portable audit")
 	}
 
 	os.Exit(runMain(m))
@@ -456,7 +455,6 @@ func runMain(m *testing.M) int {
 		}
 		testConfigClient.KeyLogWriter = f
 		testConfigServer.KeyLogWriter = f
-		testConfigFIPS140.KeyLogWriter = f
 		defer f.Close()
 	}
 

@@ -12,11 +12,8 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/fips140"
-	"crypto/internal/boring"
-	"crypto/internal/cryptotest"
 	"crypto/mldsa"
 	"crypto/rand"
-	"crypto/tls/internal/fips140tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
@@ -24,7 +21,9 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"internal/testenv"
+	"github.com/saucesteals/tlsx/internal/boring"
+	"github.com/saucesteals/tlsx/internal/fips140tls"
+	"github.com/saucesteals/tlsx/internal/testenv"
 	"io"
 	"math"
 	"math/big"
@@ -879,10 +878,11 @@ func TestWarningAlertFlood(t *testing.T) {
 }
 
 func TestCloneFuncFields(t *testing.T) {
-	const expectedCount = 10
+	const expectedCount = 11
 	called := 0
 
 	c1 := Config{
+		Compatibility: func() (*ClientCompatibility, error) { called |= 1 << 10; return nil, nil },
 		Time: func() time.Time {
 			called |= 1 << 0
 			return time.Time{}
@@ -927,6 +927,7 @@ func TestCloneFuncFields(t *testing.T) {
 
 	c2 := c1.Clone()
 
+	c2.Compatibility()
 	c2.Time()
 	c2.GetCertificate(nil)
 	c2.GetClientCertificate(nil)
@@ -955,7 +956,7 @@ func TestCloneNonFuncFields(t *testing.T) {
 		switch fn := typ.Field(i).Name; fn {
 		case "Rand":
 			f.Set(reflect.ValueOf(io.Reader(os.Stdin)))
-		case "Time", "GetCertificate", "GetConfigForClient", "VerifyPeerCertificate", "VerifyConnection", "GetClientCertificate", "WrapSession", "UnwrapSession", "EncryptedClientHelloRejectionVerify", "GetEncryptedClientHelloKeys":
+		case "Compatibility", "Time", "GetCertificate", "GetConfigForClient", "VerifyPeerCertificate", "VerifyConnection", "GetClientCertificate", "WrapSession", "UnwrapSession", "EncryptedClientHelloRejectionVerify", "GetEncryptedClientHelloKeys":
 			// DeepEqual can't compare functions. If you add a
 			// function field to this list, you must also change
 			// TestCloneFuncFields to ensure that the func field is
@@ -1354,7 +1355,7 @@ func TestConnectionState(t *testing.T) {
 	}
 
 	for _, v := range []uint16{VersionTLS10, VersionTLS12, VersionTLS13} {
-		if !isFIPSVersion(v) && fips140tls.Required() {
+		if (v != VersionTLS12 && v != VersionTLS13) && fips140tls.Required() {
 			t.Skipf("skipping test in FIPS 140-3 mode for non-FIPS version %x", v)
 		}
 		var name string
@@ -2430,7 +2431,6 @@ func TestHandshakeMLDSA(t *testing.T) {
 				if v == VersionTLS10 {
 					skipFIPS(t) // TLS 1.0 is not allowed in FIPS 140-3 mode.
 				}
-				cryptotest.MustMinimumFIPS140ModuleVersion(t, "v1.26.0")
 				t.Parallel()
 				serverConfig := testConfigServer.Clone()
 				serverConfig.MinVersion = VersionTLS10
@@ -2453,7 +2453,6 @@ func TestHandshakeMLDSA(t *testing.T) {
 				}
 			})
 			t.Run(name+"/Client", func(t *testing.T) {
-				cryptotest.MustMinimumFIPS140ModuleVersion(t, "v1.26.0")
 				t.Parallel()
 				serverConfig := testConfigServer.Clone()
 				serverConfig.MinVersion = VersionTLS10
@@ -2478,7 +2477,6 @@ func TestHandshakeMLDSA(t *testing.T) {
 			})
 		}
 		t.Run(tt.name+"/CorruptedSignature/Server", func(t *testing.T) {
-			cryptotest.MustMinimumFIPS140ModuleVersion(t, "v1.26.0")
 			t.Parallel()
 			serverConfig := testConfigServer.Clone()
 			serverConfig.Certificates = []Certificate{{
@@ -2498,7 +2496,6 @@ func TestHandshakeMLDSA(t *testing.T) {
 			}
 		})
 		t.Run(tt.name+"/CorruptedSignature/Client", func(t *testing.T) {
-			cryptotest.MustMinimumFIPS140ModuleVersion(t, "v1.26.0")
 			t.Parallel()
 			serverConfig := testConfigServer.Clone()
 			serverConfig.ClientAuth = RequireAndVerifyClientCert

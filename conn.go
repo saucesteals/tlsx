@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/cipher"
+	"crypto/fips140"
 	"crypto/subtle"
 	"crypto/x509"
 	"errors"
@@ -25,6 +26,7 @@ import (
 // A Conn represents a secured connection.
 // It implements the net.Conn interface.
 type Conn struct {
+	compatibility *ClientCompatibility
 	// constant
 	conn        net.Conn
 	isClient    bool
@@ -1005,7 +1007,11 @@ func (c *Conn) writeRecordLocked(typ recordType, data []byte) (int, error) {
 	var n int
 	for len(data) > 0 {
 		m := len(data)
-		if maxPayload := c.maxPayloadSizeForWrite(typ); m > maxPayload {
+		maxPayload, err := c.compatibilityRecordSize(typ)
+		if err != nil {
+			return n, err
+		}
+		if m > maxPayload {
 			m = maxPayload
 		}
 
@@ -1026,7 +1032,6 @@ func (c *Conn) writeRecordLocked(typ recordType, data []byte) (int, error) {
 		outBuf[3] = byte(m >> 8)
 		outBuf[4] = byte(m)
 
-		var err error
 		outBuf, err = c.out.encrypt(outBuf, data[:m], c.config.rand())
 		if err != nil {
 			return n, err
@@ -1100,7 +1105,7 @@ func (c *Conn) readHandshake(transcript transcriptHash) (any, error) {
 	// hasVers indicates we're past the first message, forcing someone trying to
 	// make us just allocate a large buffer to at least do the initial part of
 	// the handshake first.
-	if c.haveVers && data[0] == typeCertificate {
+	if c.haveVers && (data[0] == typeCertificate || c.compatibilityCertificateMessage(data[0])) {
 		// Since certificate messages are likely to be the only messages that
 		// can be larger than maxHandshake, we use a special limit for just
 		// those messages.
@@ -1120,6 +1125,11 @@ func (c *Conn) readHandshake(transcript transcriptHash) (any, error) {
 }
 
 func (c *Conn) unmarshalHandshakeMessage(data []byte, transcript transcriptHash) (handshakeMessage, error) {
+	original := data
+	data, err := c.decodeCompatibilityHandshake(data)
+	if err != nil {
+		return nil, err
+	}
 	var m handshakeMessage
 	switch data[0] {
 	case typeHelloRequest:
@@ -1182,7 +1192,7 @@ func (c *Conn) unmarshalHandshakeMessage(data []byte, transcript transcriptHash)
 	}
 
 	if transcript != nil {
-		transcript.Write(data)
+		transcript.Write(original)
 	}
 
 	return m, nil
@@ -1516,6 +1526,10 @@ func (c *Conn) HandshakeContext(ctx context.Context) error {
 }
 
 func (c *Conn) handshakeContext(ctx context.Context) (ret error) {
+	if fips140.Enabled() {
+		return errors.New("tls: importable fork does not support FIPS mode")
+	}
+
 	// Fast sync/atomic-based exit if there is no handshake in flight and the
 	// last one succeeded without an error. Avoids the expensive context setup
 	// and mutex for most Read and Write calls.
